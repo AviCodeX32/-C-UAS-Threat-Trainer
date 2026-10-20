@@ -1,111 +1,133 @@
 import { create } from 'zustand';
 import {
-  DroneTelemetry,
+  Drone,
   JammerState,
-  GNSSSpoofingState,
-  KineticDefenseState,
+  SpoofingState,
+  KineticState,
   StationVitals,
-  AuditEvent,
-  ScenarioDefinition,
+  SimEvent,
+  ScenarioPreset,
   AARScorecard,
-  ClientMessage,
   ServerMessage,
-  FrequencyBand,
-  ThreatType,
-  SCENARIO_PRESETS,
-  JAMMER_CONFIG,
-  KINETIC_CONFIG,
-  TRENCH_SECTOR
+  ClientMessage,
+  CAMERA_PRESETS,
+  CameraPreset
 } from '@cuas/shared';
+import { SCENARIO_PRESETS } from '@cuas/shared';
 import { audioEngine } from '../audio/synth';
 
-interface SimulatorState {
+interface SimulatorStore {
+  // Connection
   wsConnected: boolean;
-  scenario: ScenarioDefinition;
+  initWebSocket: () => void;
+  sendAction: (action: ClientMessage) => void;
+
+  // Simulator Data
   simTime: number;
-  drones: DroneTelemetry[];
+  scenarioStatus: 'idle' | 'running' | 'paused' | 'completed';
+  scenario: ScenarioPreset;
+  drones: Drone[];
   selectedDroneId: string | null;
   jammer: JammerState;
-  spoof: GNSSSpoofingState;
-  kinetic: KineticDefenseState;
+  spoof: SpoofingState;
+  kinetic: KineticState;
   vitals: StationVitals;
-  recentEvents: AuditEvent[];
-  scenarioStatus: 'running' | 'completed' | 'failed';
-  aarScorecard: AARScorecard | null;
+  recentEvents: SimEvent[];
+
+  // Camera & Views
+  activeCameraPreset: CameraPreset;
+  cameraPitch: number;
+  cameraYaw: number;
+  cameraZoom: number;
+  thermalPalette: 'white-hot' | 'black-hot' | 'nvg';
+
+  // UI States
   showAARModal: boolean;
-  audioMuted: boolean;
-  flirZoom: number; // 1, 2, 4, 8
+  aarScorecard: AARScorecard | null;
+  crtFilterEnabled: boolean;
+  soundEnabled: boolean;
 
   // Actions
-  initWebSocket: () => void;
-  selectScenario: (scenarioId: string) => void;
-  restartScenario: () => void;
-  setSelectedDrone: (id: string | null) => void;
-  setJammerAngle: (azimuth: number) => void;
-  fireJammer: (active: boolean) => void;
-  toggleJammerBand: (band: FrequencyBand, enabled: boolean) => void;
-  toggleWideband: (enabled: boolean) => void;
-  engageSpoof: (active: boolean, mode?: 'drift' | 'geofence_lock') => void;
-  fireKinetic: (targetDroneId?: string) => void;
-  takeCover: () => void;
-  designateTarget: (droneId: string, classification: ThreatType) => void;
-  autoAimAtTarget: () => void;
-  setFlirZoom: (zoom: number) => void;
-  toggleMute: () => void;
+  selectDrone: (id: string | null) => void;
+  setCameraPreset: (preset: CameraPreset) => void;
+  setCameraAngles: (pitch: number, yaw: number, zoom?: number) => void;
+  setThermalPalette: (palette: 'white-hot' | 'black-hot' | 'nvg') => void;
+  toggleCRT: () => void;
+  toggleSound: () => void;
   closeAARModal: () => void;
+
+  // Controls (wrapped to sendAction)
+  toggleJammerBand: (band: '2.4GHz' | '5.8GHz' | 'GNSS' | 'all') => void;
+  setJammerPower: (power: number) => void;
+  setJammerAzimuth: (azimuth: number, beamwidth: number) => void;
+  toggleWidebandBarrage: () => void;
+
+  toggleSpoofing: (active: boolean) => void;
+  setSpoofOffset: (driftRate: number, falseHeading: number) => void;
+  triggerKineticLaunch: (targetId: string) => void;
+  toggleTakeCover: () => void;
+
+  selectScenario: (scenarioId: string) => void;
+  pauseSimulation: () => void;
+  resumeSimulation: () => void;
+  restartSimulation: () => void;
 }
 
 let socket: WebSocket | null = null;
 let reconnectTimer: any = null;
 
-export const useSimulatorStore = create<SimulatorState>((set, get) => ({
+export const useSimulatorStore = create<SimulatorStore>((set, get) => ({
   wsConnected: false,
-  scenario: SCENARIO_PRESETS[0],
   simTime: 0,
+  scenarioStatus: 'idle',
+  scenario: SCENARIO_PRESETS[0],
   drones: [],
   selectedDroneId: null,
   jammer: {
-    azimuth: 0,
-    beamWidth: JAMMER_CONFIG.DEFAULT_BEAM_WIDTH,
-    maxRange: JAMMER_CONFIG.MAX_RANGE,
     active: false,
-    enabledBands: {
-      '433MHz': false,
-      '868MHz': false,
-      '1.2GHz': false,
-      '2.4GHz': true,
-      '5.8GHz': false
-    },
-    widebandBarrage: false,
-    temperature: 0,
+    bands: { '2.4GHz': false, '5.8GHz': false, 'GNSS': false },
+    power: 50,
+    azimuth: 0,
+    beamwidth: 60,
+    heat: 0,
     overheated: false,
-    lockoutRemaining: 0
+    widebandBarrage: false
   },
   spoof: {
     active: false,
-    mode: 'drift'
+    targetConstellation: 'GPS_L1',
+    driftRate: 5,
+    falseHeading: 180,
+    lockedDrones: []
   },
   kinetic: {
-    ammo: KINETIC_CONFIG.MAX_AMMO,
-    maxAmmo: KINETIC_CONFIG.MAX_AMMO,
-    burstSize: KINETIC_CONFIG.BURST_ROUNDS,
-    effectiveRange: KINETIC_CONFIG.EFFECTIVE_RANGE,
-    lastFireResult: null
+    ammo: 10,
+    maxAmmo: 10,
+    reloading: false,
+    reloadProgress: 0,
+    killProbability: 0.85,
+    interceptors: []
   },
   vitals: {
-    power: 100,
-    takeCoverActive: false,
-    takeCoverExpiresAt: null,
-    baseHealth: 100,
-    casualties: 0,
-    friendlyTrenchSector: TRENCH_SECTOR
+    radarHealth: 100,
+    jammerHealth: 100,
+    batteryPercent: 100,
+    generatorFuel: 95,
+    bunkerIntegrity: 100,
+    takeCoverActive: false
   },
   recentEvents: [],
-  scenarioStatus: 'running',
-  aarScorecard: null,
+
+  activeCameraPreset: CAMERA_PRESETS[0],
+  cameraPitch: -10,
+  cameraYaw: 0,
+  cameraZoom: 1,
+  thermalPalette: 'white-hot',
+
   showAARModal: false,
-  audioMuted: false,
-  flirZoom: 1,
+  aarScorecard: null,
+  crtFilterEnabled: false,
+  soundEnabled: true,
 
   initWebSocket: () => {
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
@@ -140,10 +162,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
 
         if (msg.type === 'TICK') {
           // Update audio synthesizer with live sim physics
-          const activeFlyingDrones = msg.drones.filter(d => d.status === 'flying');
+          const activeFlyingDrones = msg.drones.filter((d: Drone) => d.status === 'flying');
           if (activeFlyingDrones.length > 0) {
-            const closest = Math.min(...activeFlyingDrones.map(d => d.distance));
-            const maxSpd = Math.max(...activeFlyingDrones.map(d => d.speed));
+            const closest = Math.min(...activeFlyingDrones.map((d: Drone) => d.distance));
+            const maxSpd = Math.max(...activeFlyingDrones.map((d: Drone) => d.speed));
             audioEngine.updateRotorHum(closest, maxSpd, true);
           } else {
             audioEngine.updateRotorHum(2000, 0, false);
@@ -210,119 +232,144 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => ({
     };
   },
 
+  sendAction: (action: ClientMessage) => {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(action));
+    }
+  },
+
+  selectDrone: (id: string | null) => {
+    set({ selectedDroneId: id });
+  },
+
+  setCameraPreset: (preset: CameraPreset) => {
+    set({
+      activeCameraPreset: preset,
+      cameraPitch: preset.pitch,
+      cameraYaw: preset.yaw,
+      cameraZoom: preset.zoom
+    });
+  },
+
+  setCameraAngles: (pitch: number, yaw: number, zoom?: number) => {
+    set(state => ({
+      cameraPitch: pitch,
+      cameraYaw: yaw,
+      cameraZoom: zoom !== undefined ? zoom : state.cameraZoom
+    }));
+  },
+
+  setThermalPalette: (palette) => set({ thermalPalette: palette }),
+  toggleCRT: () => set(s => ({ crtFilterEnabled: !s.crtFilterEnabled })),
+  toggleSound: () => {
+    const next = !get().soundEnabled;
+    audioEngine.setMasterVolume(next ? 0.3 : 0);
+    set({ soundEnabled: next });
+  },
+  closeAARModal: () => set({ showAARModal: false }),
+
+  toggleJammerBand: (band) => {
+    const s = get();
+    const current = s.jammer.bands;
+    let nextBands = { ...current };
+
+    if (band === 'all') {
+      const anyActive = current['2.4GHz'] || current['5.8GHz'] || current['GNSS'];
+      nextBands = { '2.4GHz': !anyActive, '5.8GHz': !anyActive, 'GNSS': !anyActive };
+    } else {
+      nextBands[band] = !current[band];
+    }
+
+    const isActive = nextBands['2.4GHz'] || nextBands['5.8GHz'] || nextBands['GNSS'];
+
+    s.sendAction({
+      type: 'SET_JAMMER',
+      jammer: {
+        active: isActive,
+        bands: nextBands
+      }
+    });
+  },
+
+  setJammerPower: (power) => {
+    get().sendAction({
+      type: 'SET_JAMMER',
+      jammer: { power }
+    });
+  },
+
+  setJammerAzimuth: (azimuth, beamwidth) => {
+    get().sendAction({
+      type: 'SET_JAMMER',
+      jammer: { azimuth, beamwidth }
+    });
+  },
+
+  toggleWidebandBarrage: () => {
+    const s = get();
+    s.sendAction({
+      type: 'SET_JAMMER',
+      jammer: { widebandBarrage: !s.jammer.widebandBarrage }
+    });
+  },
+
+  toggleSpoofing: (active) => {
+    const s = get();
+    s.sendAction({
+      type: 'SET_SPOOFING',
+      spoof: { active }
+    });
+  },
+
+  setSpoofOffset: (driftRate, falseHeading) => {
+    get().sendAction({
+      type: 'SET_SPOOFING',
+      spoof: { driftRate, falseHeading }
+    });
+  },
+
+  triggerKineticLaunch: (targetId) => {
+    get().sendAction({
+      type: 'TRIGGER_KINETIC',
+      targetId
+    });
+  },
+
+  toggleTakeCover: () => {
+    const s = get();
+    s.sendAction({
+      type: 'TOGGLE_TAKE_COVER',
+      active: !s.vitals.takeCoverActive
+    });
+  },
+
   selectScenario: (scenarioId: string) => {
-    const targetPreset = SCENARIO_PRESETS.find(s => s.id === scenarioId);
+    const targetPreset = SCENARIO_PRESETS.find((s: ScenarioPreset) => s.id === scenarioId);
     set({
       showAARModal: false,
       aarScorecard: null,
       scenarioStatus: 'running',
       scenario: targetPreset || get().scenario,
       drones: [],
-      selectedDroneId: null,
-      simTime: 0
+      recentEvents: []
     });
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'SELECT_SCENARIO', scenarioId } as ClientMessage));
-    }
-  },
 
-  restartScenario: () => {
-    set({
-      showAARModal: false,
-      aarScorecard: null,
-      scenarioStatus: 'running',
-      drones: [],
-      selectedDroneId: null,
-      simTime: 0
+    get().sendAction({
+      type: 'START_SCENARIO',
+      scenarioId
     });
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'RESTART_SCENARIO' } as ClientMessage));
-    }
   },
 
-  autoAimAtTarget: () => {
-    const state = get();
-    const activeDrones = state.drones.filter(d => d.status === 'flying');
-    const target = state.drones.find(d => d.id === state.selectedDroneId && d.status === 'flying') ||
-                   activeDrones[0];
-    if (target) {
-      state.setJammerAngle(target.azimuth);
-      state.setSelectedDrone(target.id);
-      state.toggleJammerBand(target.frequency, true);
-    }
+  pauseSimulation: () => {
+    get().sendAction({ type: 'PAUSE' });
   },
 
-  setSelectedDrone: (id: string | null) => {
-    set({ selectedDroneId: id });
-    if (id) {
-      audioEngine.playTargetLocked();
-    }
+  resumeSimulation: () => {
+    get().sendAction({ type: 'RESUME' });
   },
 
-  setJammerAngle: (azimuth: number) => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'SET_JAMMER_ANGLE', azimuth } as ClientMessage));
-    }
-    // Optimistic local update
-    set(state => ({
-      jammer: { ...state.jammer, azimuth: (azimuth + 360) % 360 }
-    }));
-  },
-
-  fireJammer: (active: boolean) => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'FIRE_JAMMER', active } as ClientMessage));
-    }
-  },
-
-  toggleJammerBand: (band: FrequencyBand, enabled: boolean) => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'TOGGLE_JAMMER_BAND', band, enabled } as ClientMessage));
-    }
-  },
-
-  toggleWideband: (enabled: boolean) => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'TOGGLE_WIDEBAND', enabled } as ClientMessage));
-    }
-  },
-
-  engageSpoof: (active: boolean, mode: 'drift' | 'geofence_lock' = 'drift') => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'ENGAGE_SPOOF', active, mode } as ClientMessage));
-    }
-  },
-
-  fireKinetic: (targetDroneId?: string) => {
-    audioEngine.playKineticBurst();
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'FIRE_KINETIC', targetDroneId } as ClientMessage));
-    }
-  },
-
-  takeCover: () => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'TAKE_COVER' } as ClientMessage));
-    }
-  },
-
-  designateTarget: (droneId: string, classification: ThreatType) => {
-    audioEngine.playTargetLocked();
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'DESIGNATE_TARGET', droneId, classification } as ClientMessage));
-    }
-  },
-
-  setFlirZoom: (zoom: number) => {
-    set({ flirZoom: zoom });
-  },
-
-  toggleMute: () => {
-    const muted = audioEngine.toggleMute();
-    set({ audioMuted: muted });
-  },
-
-  closeAARModal: () => {
-    set({ showAARModal: false });
+  restartSimulation: () => {
+    const s = get();
+    s.selectScenario(s.scenario.id);
   }
 }));
