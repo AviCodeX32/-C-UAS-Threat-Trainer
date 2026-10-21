@@ -1,5 +1,5 @@
 import { SimulationEngine } from '../sim/engine.js';
-import { SCENARIO_PRESETS } from '@cuas/shared';
+import { SCENARIO_PRESETS } from '../shared/index.js';
 
 function assert(condition: boolean, msg: string) {
   if (!condition) {

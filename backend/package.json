@@ -10,7 +10,6 @@
     "test": "tsx src/sim/__tests__/sim.test.ts"
   },
   "dependencies": {
-    "@cuas/shared": "*",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.38.4",

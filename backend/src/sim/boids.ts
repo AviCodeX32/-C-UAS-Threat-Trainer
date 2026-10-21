@@ -1,4 +1,4 @@
-import { DroneTelemetry } from '@cuas/shared';
+import { DroneTelemetry } from '../shared/index.js';
 
 export interface BoidForce {
   fx: number;

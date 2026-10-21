@@ -1,4 +1,4 @@
-import { DroneTelemetry, KineticDefenseState, StationVitals, KINETIC_CONFIG } from '@cuas/shared';
+import { DroneTelemetry, KineticDefenseState, StationVitals, KINETIC_CONFIG } from '../shared/index.js';
 
 export interface KineticShotResult {
   hit: boolean;

@@ -13,7 +13,7 @@ import {
   JAMMER_CONFIG,
   KINETIC_CONFIG,
   TRENCH_SECTOR
-} from '@cuas/shared';
+} from '../shared/index.js';
 import { computeBoidForces } from './boids.js';
 import { evaluateJammerOnDrone, evaluateSpoofingOnDrone } from './ewPhysics.js';
 import { resolveKineticBurst } from './kinetic.js';

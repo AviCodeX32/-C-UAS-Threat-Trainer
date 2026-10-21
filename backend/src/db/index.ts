@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import * as schema from './schema.js';
-import { SCENARIO_PRESETS } from '@cuas/shared';
+import { SCENARIO_PRESETS } from '../shared/index.js';
 
 const { Pool } = pg;
 

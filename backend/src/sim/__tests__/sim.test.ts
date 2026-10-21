@@ -2,7 +2,7 @@ import { evaluateJammerCone, evaluateJammerOnDrone, evaluateSpoofingOnDrone } fr
 import { calculateHitProbability, isTargetInFriendlyTrenchSector } from '../kinetic.js';
 import { computeBoidForces } from '../boids.js';
 import { evaluateAARScore } from '../aar.js';
-import { DroneTelemetry, JammerState, SCENARIO_PRESETS, TRENCH_SECTOR } from '@cuas/shared';
+import { DroneTelemetry, JammerState, SCENARIO_PRESETS, TRENCH_SECTOR } from '../../shared/index.js';
 
 function assert(condition: boolean, msg: string) {
   if (!condition) {

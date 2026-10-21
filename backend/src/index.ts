@@ -6,7 +6,7 @@ import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { initDatabase, memoryStore, isPostgresConnected } from './db/index.js';
 import { SimulationEngine } from './sim/engine.js';
-import { ClientMessage, SCENARIO_PRESETS, ServerMessage } from '@cuas/shared';
+import { ClientMessage, SCENARIO_PRESETS, ServerMessage } from './shared/index.js';
 
 const PORT = process.env.PORT || 4000;
 

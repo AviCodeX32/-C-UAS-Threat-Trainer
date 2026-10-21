@@ -1,4 +1,4 @@
-import { AARScorecard, DroneTelemetry, ScenarioDefinition } from '@cuas/shared';
+import { AARScorecard, DroneTelemetry, ScenarioDefinition } from '../shared/index.js';
 
 export interface CombatStats {
   sessionId: string;

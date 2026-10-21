@@ -1,4 +1,4 @@
-import { DroneTelemetry, JammerState, GNSSSpoofingState, JAMMER_CONFIG } from '@cuas/shared';
+import { DroneTelemetry, JammerState, GNSSSpoofingState, JAMMER_CONFIG } from '../shared/index.js';
 
 export interface JammerEvaluationResult {
   inCone: boolean;
